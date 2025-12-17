@@ -1,0 +1,287 @@
+/**
+ * Responsive Design Styles for OvCare
+ * Mobile-first approach with breakpoints
+ */
+
+/* Breakpoints:
+ * xs: < 576px (mobile)
+ * sm: 576px - 768px (tablet portrait)
+ * md: 768px - 992px (tablet landscape)
+ * lg: 992px - 1200px (desktop)
+ * xl: > 1200px (large desktop)
+ */
+
+/* Mobile First - Default styles */
+.container-responsive {
+    width: 100%;
+    padding: 0 16px;
+    margin: 0 auto;
+}
+
+/* Small devices (tablets, 576px and up) */
+@media (min-width: 576px) {
+    .container-responsive {
+        max-width: 540px;
+    }
+    
+    .glass-card {
+        padding: 20px;
+    }
+}
+
+/* Medium devices (tablets landscape, 768px and up) */
+@media (min-width: 768px) {
+    .container-responsive {
+        max-width: 720px;
+    }
+    
+    .glass-card {
+        padding: 24px;
+    }
+    
+    .hide-md {
+        display: none !important;
+    }
+}
+
+/* Large devices (desktops, 992px and up) */
+@media (min-width: 992px) {
+    .container-responsive {
+        max-width: 960px;
+    }
+}
+
+/* Extra large devices (large desktops, 1200px and up) */
+@media (min-width: 1200px) {
+    .container-responsive {
+        max-width: 1140px;
+    }
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 767px) {
+    /* Typography */
+    h1 { font-size: 1.75rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.25rem; }
+    h4 { font-size: 1.125rem; }
+    
+    /* Buttons */
+    .glass-btn {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    
+    /* Cards */
+    .glass-card {
+        border-radius: 16px;
+        padding: 16px;
+    }
+    
+    /* Navigation */
+    .glass-navbar .nav-item {
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* Hide on mobile */
+    .hide-mobile {
+        display: none !important;
+    }
+    
+    /* Show on mobile */
+    .show-mobile {
+        display: block !important;
+    }
+    
+    /* Stack columns */
+    .mobile-stack {
+        flex-direction: column;
+    }
+    
+    /* Full width on mobile */
+    .mobile-full {
+        width: 100% !important;
+    }
+}
+
+/* Tablet-specific adjustments */
+@media (min-width: 768px) and (max-width: 991px) {
+    .hide-tablet {
+        display: none !important;
+    }
+    
+    .show-tablet {
+        display: block !important;
+    }
+}
+
+/* Desktop-specific adjustments */
+@media (min-width: 992px) {
+    .hide-desktop {
+        display: none !important;
+    }
+    
+    .show-desktop {
+        display: block !important;
+    }
+}
+
+/* Grid system */
+.row-responsive {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 -8px;
+}
+
+.col-responsive {
+    padding: 0 8px;
+    margin-bottom: 16px;
+}
+
+/* Column widths - Mobile first */
+.col-1 { width: 100%; }
+.col-2 { width: 100%; }
+.col-3 { width: 100%; }
+.col-4 { width: 100%; }
+.col-6 { width: 100%; }
+.col-12 { width: 100%; }
+
+@media (min-width: 768px) {
+    .col-md-1 { width: 8.33%; }
+    .col-md-2 { width: 16.66%; }
+    .col-md-3 { width: 25%; }
+    .col-md-4 { width: 33.33%; }
+    .col-md-6 { width: 50%; }
+    .col-md-8 { width: 66.66%; }
+    .col-md-12 { width: 100%; }
+}
+
+@media (min-width: 992px) {
+    .col-lg-1 { width: 8.33%; }
+    .col-lg-2 { width: 16.66%; }
+    .col-lg-3 { width: 25%; }
+    .col-lg-4 { width: 33.33%; }
+    .col-lg-6 { width: 50%; }
+    .col-lg-8 { width: 66.66%; }
+    .col-lg-12 { width: 100%; }
+}
+
+/* Flexbox utilities */
+.flex-responsive {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.flex-column-mobile {
+    flex-direction: column;
+}
+
+@media (min-width: 768px) {
+    .flex-row-tablet {
+        flex-direction: row;
+    }
+}
+
+/* Spacing utilities */
+.p-mobile {
+    padding: 8px;
+}
+
+.p-tablet {
+    padding: 16px;
+}
+
+.p-desktop {
+    padding: 24px;
+}
+
+@media (min-width: 768px) {
+    .p-mobile { padding: 16px; }
+}
+
+@media (min-width: 992px) {
+    .p-mobile { padding: 24px; }
+    .p-tablet { padding: 24px; }
+}
+
+/* Text alignment */
+.text-center-mobile {
+    text-align: center;
+}
+
+@media (min-width: 768px) {
+    .text-left-tablet {
+        text-align: left;
+    }
+}
+
+/* Image responsiveness */
+.img-responsive {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Table responsiveness */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767px) {
+    .table-responsive table {
+        width: 100%;
+        min-width: 600px;
+    }
+}
+
+/* Chart responsiveness */
+.chart-container-responsive {
+    position: relative;
+    width: 100%;
+    height: 300px;
+}
+
+@media (min-width: 768px) {
+    .chart-container-responsive {
+        height: 400px;
+    }
+}
+
+@media (min-width: 1200px) {
+    .chart-container-responsive {
+        height: 500px;
+    }
+}
+
+/* Modal responsiveness */
+@media (max-width: 767px) {
+    .glass-modal {
+        border-radius: 16px 16px 0 0;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+}
+
+/* Print styles */
+@media print {
+    .no-print {
+        display: none !important;
+    }
+    
+    .glass-card {
+        background: white;
+        border: 1px solid #ccc;
+        box-shadow: none;
+    }
+    
+    body {
+        background: white;
+        color: black;
+    }
+}
