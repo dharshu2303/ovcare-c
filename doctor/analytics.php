@@ -159,6 +159,16 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
             padding: 30px 0;
             min-height: calc(100vh - 80px);
         }
+        /* Ensure readable white text on dark analytics page */
+        .glass-card,
+        .glass-card h1, .glass-card h2, .glass-card h3, .glass-card h4, .glass-card h5, .glass-card h6,
+        .glass-card p, .glass-card small, .glass-card .list-unstyled, .glass-card .list-unstyled li {
+            color: #ffffff !important;
+        }
+        .glass-card .text-muted, .text-muted {
+            color: rgba(255,255,255,0.75) !important;
+        }
+        .navbar .nav-link { color: #ffffff !important; }
     </style>
 </head>
 <body class="dark-theme">
@@ -221,28 +231,28 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
                     <div class="glass-card">
                         <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>Risk Statistics</h5>
                         <div class="mb-4">
-                            <div class="risk-stat" style="border-left: 4px solid #dc2626;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation-triangle text-danger me-2"></i>
                                     <strong>Critical Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['Critical'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #ef4444;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation-circle text-warning me-2"></i>
                                     <strong>High Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['High'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #f59e0b;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation text-warning me-2"></i>
                                     <strong>Moderate Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['Moderate'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #10b981;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-check-circle text-success me-2"></i>
                                     <strong>Low Risk</strong>
@@ -250,7 +260,7 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
                                 <div class="count"><?php echo $risk_distribution['Low'] ?? 0; ?></div>
                             </div>
                             <?php if (($risk_distribution['Unknown'] ?? 0) > 0): ?>
-                            <div class="risk-stat" style="border-left: 4px solid #6b7280;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-question-circle text-secondary me-2"></i>
                                     <strong>No Risk Data</strong>
