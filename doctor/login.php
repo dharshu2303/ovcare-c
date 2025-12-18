@@ -129,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .divider {
             text-align: center;
             margin: 20px 0;
-            color: #94a3b8;
+            color: #000000ff;
             font-size: 0.85rem;
         }
     </style>

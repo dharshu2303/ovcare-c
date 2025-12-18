@@ -112,58 +112,61 @@ while ($row = $result->fetch_assoc()) {
     $row['probability'] = null;
     $row['calculated_at'] = null;
 
-    // Try ML prediction first (same logic as patient dashboard)
-    if ($bio_data) {
-        $patient_age = intval($row['age']);
-        $payload = [
-            "Age" => $patient_age,
-            "CA125_Level" => floatval($bio_data['CA125']),
-            "HE4_Level" => floatval($bio_data['HE4']),
-            "LDH_Level" => 180.0,
-            "Hemoglobin" => 13.0,
-            "WBC" => isset($bio_data['heart_rate']) ? floatval($bio_data['heart_rate']) * 100.0 : 7000.0,
-            "Platelets" => 250000.0,
-            "Ovary_Size" => 3.5,
-            "Fatigue_Level" => 5,
-            "Pelvic_Pain" => 0,
-            "Abdominal_Bloating" => 0,
-            "Early_Satiety" => 0,
-            "Menstrual_Irregularities" => 0,
-            "Weight_Change" => 0.0
-        ];
+    // First, try to get latest risk from risk_history table
+    $risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
+    $risk_stmt->bind_param("i", $patient_id);
+    $risk_stmt->execute();
+    $risk_result = $risk_stmt->get_result();
+    $risk_data = $risk_result->fetch_assoc();
+    $risk_stmt->close();
 
-        $ml_result = call_ml_api('/predict', $payload);
-        if (is_array($ml_result) && empty($ml_result['error'])) {
-            if (isset($ml_result['probability'])) {
-                $row['probability'] = floatval($ml_result['probability']);
-                $row['risk_tier'] = get_risk_tier($row['probability']);
-                $row['calculated_at'] = $row['recorded_at'];
-            } elseif (isset($ml_result['risk'])) {
-                $row['probability'] = null;
-                $row['risk_tier'] = $ml_result['risk'] ? 'High' : 'Low';
-                $row['calculated_at'] = $row['recorded_at'];
+    if ($risk_data) {
+        $row['risk_tier'] = $risk_data['risk_tier'];
+        $row['probability'] = isset($risk_data['probability']) ? floatval($risk_data['probability']) : null;
+        $row['calculated_at'] = $risk_data['calculated_at'];
+    } else {
+        // If no risk_history, try ML prediction as fallback
+        if ($bio_data) {
+            $patient_age = intval($row['age']);
+            $payload = [
+                "Age" => $patient_age,
+                "CA125_Level" => floatval($bio_data['CA125']),
+                "HE4_Level" => floatval($bio_data['HE4']),
+                "LDH_Level" => 180.0,
+                "Hemoglobin" => 13.0,
+                "WBC" => isset($bio_data['heart_rate']) ? floatval($bio_data['heart_rate']) * 100.0 : 7000.0,
+                "Platelets" => 250000.0,
+                "Ovary_Size" => 3.5,
+                "Fatigue_Level" => 5,
+                "Pelvic_Pain" => 0,
+                "Abdominal_Bloating" => 0,
+                "Early_Satiety" => 0,
+                "Menstrual_Irregularities" => 0,
+                "Weight_Change" => 0.0
+            ];
+
+            $ml_result = call_ml_api('/predict', $payload);
+            if (is_array($ml_result) && empty($ml_result['error'])) {
+                if (isset($ml_result['probability'])) {
+                    $row['probability'] = floatval($ml_result['probability']);
+                    $row['risk_tier'] = get_risk_tier($row['probability']);
+                    $row['calculated_at'] = $row['recorded_at'];
+                } elseif (isset($ml_result['risk'])) {
+                    $row['probability'] = $ml_result['risk'] ? 0.75 : 0.25;
+                    $row['risk_tier'] = $ml_result['risk'] ? 'High' : 'Low';
+                    $row['calculated_at'] = $row['recorded_at'];
+                }
             }
         }
     }
-
-    // Fallback to latest saved risk_history if ML not available or no data
-    if ($row['risk_tier'] === null && $row['probability'] === null) {
-        $risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
-        $risk_stmt->bind_param("i", $patient_id);
-        $risk_stmt->execute();
-        $risk_result = $risk_stmt->get_result();
-        $risk_data = $risk_result->fetch_assoc();
-        $risk_stmt->close();
-
-        $row['risk_tier'] = $risk_data['risk_tier'] ?? null;
-        $row['probability'] = isset($risk_data['probability']) ? floatval($risk_data['probability']) : null;
-        $row['calculated_at'] = $risk_data['calculated_at'] ?? null;
-    }
     
     $patients[] = $row;
-    $tier = $row['risk_tier'] ?? 'Low';
-    if (isset($risk_stats[$tier])) {
+    $tier = $row['risk_tier'];
+    if ($tier && isset($risk_stats[$tier])) {
         $risk_stats[$tier]++;
+    } elseif (!$tier) {
+        // If no risk tier, count as Low for statistics
+        $risk_stats['Low']++;
     }
 }
 
@@ -202,6 +205,9 @@ $total_patients = count($patients);
         .stat-label {
             font-size: 0.9rem;
             color: var(--text-muted);
+        }
+        .nav-item .nav-link {
+            color: white!important;
         }
         .patient-table {
             background: transparent !important;
@@ -397,7 +403,7 @@ $total_patients = count($patients);
                                                 <?php echo htmlspecialchars($tier); ?>
                                             </span>
                                         </td>
-                                        <td><?php echo $patient['probability'] ? number_format($patient['probability'] * 100, 1) . '%' : 'N/A'; ?></td>
+                                        <td><?php echo isset($patient['probability']) && $patient['probability'] !== null ? number_format($patient['probability'] * 100, 1) . '%' : 'N/A'; ?></td>
                                         <td><?php echo $patient['CA125'] ? number_format($patient['CA125'], 2) : 'N/A'; ?></td>
                                         <td><?php echo $patient['HE4'] ? number_format($patient['HE4'], 2) : 'N/A'; ?></td>
                                         <td><?php echo $patient['recorded_at'] ? format_datetime($patient['recorded_at']) : 'N/A'; ?></td>
