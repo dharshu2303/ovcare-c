@@ -28,13 +28,8 @@ while ($note = $notes_result->fetch_assoc()) {
 }
 $notes_stmt->close();
 
-// Fetch latest risk assessment
-$risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
-$risk_stmt->bind_param("i", $patient_id);
-$risk_stmt->execute();
-$risk_result = $risk_stmt->get_result();
-$latest_risk = $risk_result->fetch_assoc();
-$risk_stmt->close();
+// Fetch averaged risk assessment across history (reduces single-point noise)
+$risk_summary = get_patient_risk_summary($conn, $patient_id);
 ?>
 <!doctype html>
 <html lang="en">
@@ -170,21 +165,21 @@ $risk_stmt->close();
   
   <div class="alert-card">
     <!-- Latest Risk Alert -->
-    <?php if ($latest_risk): ?>
+    <?php if ($risk_summary): ?>
     <div class="info-box mb-4" style="background: linear-gradient(135deg, <?php 
-      echo $latest_risk['risk_tier'] === 'Critical' ? '#dc2626, #ef4444' : 
-           ($latest_risk['risk_tier'] === 'High' ? '#ef4444, #f59e0b' : 
-           ($latest_risk['risk_tier'] === 'Moderate' ? '#f59e0b, #fbbf24' : '#10b981, #22c55e')); 
+      echo $risk_summary['risk_tier'] === 'Critical' ? '#dc2626, #ef4444' : 
+           ($risk_summary['risk_tier'] === 'High' ? '#ef4444, #f59e0b' : 
+           ($risk_summary['risk_tier'] === 'Moderate' ? '#f59e0b, #fbbf24' : '#10b981, #22c55e')); 
     ?>);">
       <h5 class="mb-2">
         <i class="fas fa-shield-alt me-2"></i>Current Risk Status: 
-        <strong><?php echo htmlspecialchars($latest_risk['risk_tier']); ?></strong>
+        <strong><?php echo htmlspecialchars($risk_summary['risk_tier']); ?></strong>
       </h5>
       <p class="mb-1">
-        Probability: <strong><?php echo isset($latest_risk['probability']) ? round($latest_risk['probability'] * 100, 1) . '%' : 'N/A'; ?></strong>
+        Probability: <strong><?php echo isset($risk_summary['probability']) ? round($risk_summary['probability'] * 100, 1) . '%' : 'N/A'; ?></strong>
       </p>
       <p class="mb-0" style="font-size: 0.9rem;">
-        <i class="fas fa-clock me-1"></i>Last assessed: <?php echo format_datetime($latest_risk['calculated_at']); ?>
+        <i class="fas fa-clock me-1"></i>Last assessed: <?php echo format_datetime($risk_summary['calculated_at']); ?>
       </p>
     </div>
     <?php endif; ?>

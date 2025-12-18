@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['patient_id'])) {
     $temperature = floatval($_POST['temperature'] ?? 0);
     $sleep_hours = floatval($_POST['sleep_hours'] ?? 0);
     $symptoms = trim($_POST['symptoms'] ?? '');
+    $medical_history = trim($_POST['medical_history'] ?? '');
 
     // Verify patient exists and is a patient account
     $verify_stmt = $conn->prepare("SELECT id FROM patients WHERE id = ? AND user_type = 'patient'");
@@ -42,6 +43,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['patient_id'])) {
         if ($insert_stmt->execute()) {
             $message = 'Biomarker data saved for patient.';
             $message_type = 'success';
+            
+
+            // Insert symptoms into symptoms table if provided
+            if (!empty($symptoms)) {
+                $symptom_stmt = $conn->prepare("INSERT INTO symptoms (patient_id, symptom_type, severity, description, logged_at) VALUES (?, ?, ?, ?, ?)");
+                $symptom_type = 'General'; // Default type
+                $severity = 5; // Default severity (moderate)
+                $symptom_stmt->bind_param("isiss", $patient_id, $symptom_type, $severity, $symptoms, $recorded_at);
+                $symptom_stmt->execute();
+                $symptom_stmt->close();
+            }
+
+            // Update medical history if provided
+            if (!empty($medical_history)) {
+                $history_stmt = $conn->prepare("UPDATE patients SET medical_history = ? WHERE id = ?");
+                $history_stmt->bind_param("si", $medical_history, $patient_id);
+                $history_stmt->execute();
+                $history_stmt->close();
+            }
 
             // Handle optional scan/report upload
             $scan_upload_path = null;
@@ -151,18 +171,13 @@ while ($row = $result->fetch_assoc()) {
     $row['probability'] = null;
     $row['calculated_at'] = null;
 
-    // First, try to get latest risk from risk_history table
-    $risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
-    $risk_stmt->bind_param("i", $patient_id);
-    $risk_stmt->execute();
-    $risk_result = $risk_stmt->get_result();
-    $risk_data = $risk_result->fetch_assoc();
-    $risk_stmt->close();
+    // Prefer averaged risk across full history; fall back to ML when no history exists
+    $risk_summary = get_patient_risk_summary($conn, $patient_id);
 
-    if ($risk_data) {
-        $row['risk_tier'] = $risk_data['risk_tier'];
-        $row['probability'] = isset($risk_data['probability']) ? floatval($risk_data['probability']) : null;
-        $row['calculated_at'] = $risk_data['calculated_at'];
+    if ($risk_summary) {
+        $row['risk_tier'] = $risk_summary['risk_tier'];
+        $row['probability'] = $risk_summary['probability'];
+        $row['calculated_at'] = $risk_summary['calculated_at'];
     } else {
         // If no risk_history, try ML prediction as fallback
         if ($bio_data) {
@@ -369,6 +384,10 @@ $total_patients = count($patients);
                             <div class="col-12">
                                 <label class="form-label">Symptoms / Notes</label>
                                 <textarea name="symptoms" class="form-control" rows="2" placeholder="fatigue, abdominal pain"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Medical History</label>
+                                <textarea name="medical_history" class="form-control" rows="3" placeholder="e.g., Previous surgeries, chronic conditions, allergies, medications"></textarea>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Upload Scan / Report (image or PDF)</label>

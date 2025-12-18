@@ -51,8 +51,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       max-width: 550px;
       width: 100%;
     }
+    .bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    }
     .register-card {
-      background: rgba(255, 255, 255, 0.95);
+      background: rgba(223, 168, 168, 0.13);
       backdrop-filter: blur(20px);
       border-radius: 30px;
       padding: 50px 40px;
@@ -187,6 +196,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </style>
 </head>
 <body>
+    <!-- Background Video -->
+  <video class="bg-video" autoplay muted loop>
+    <source src="../assets/videos/bg.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
 <div class="register-container">
   <div class="register-card">
     <div class="brand-logo">

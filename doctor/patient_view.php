@@ -87,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_note'])) {
 
 $latest_biomarker = $biomarker_history[0] ?? null;
 $latest_risk = $risk_history[0] ?? null;
+$risk_summary = get_patient_risk_summary($conn, $patient_id);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,11 +154,11 @@ $latest_risk = $risk_history[0] ?? null;
                                 </p>
                             </div>
                             <div class="col-md-6 text-md-end mt-3 mt-md-0">
-                                <?php if ($latest_risk): ?>
+                                <?php if ($risk_summary): ?>
                                 <h3 class="mb-0">
-                                    <span class="glass-badge glass-badge-<?php echo strtolower($latest_risk['risk_tier']); ?>" style="font-size: 1.2rem;">
-                                        Risk: <?php echo htmlspecialchars($latest_risk['risk_tier']); ?>
-                                        (<?php echo number_format($latest_risk['probability'] * 100, 1); ?>%)
+                                    <span class="glass-badge glass-badge-<?php echo strtolower($risk_summary['risk_tier']); ?>" style="font-size: 1.2rem;">
+                                        Risk: <?php echo htmlspecialchars($risk_summary['risk_tier']); ?>
+                                        (<?php echo number_format($risk_summary['probability'] * 100, 1); ?>%)
                                     </span>
                                 </h3>
                                 <?php endif; ?>

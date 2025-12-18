@@ -6,6 +6,8 @@ if (!isset($_SESSION['patient_id'])) {
     exit;
 }
 require_once 'db.php';
+require_once 'includes/config.php';
+require_once 'includes/functions.php';
 
 $patient_id = intval($_SESSION['patient_id']);
 
@@ -40,8 +42,17 @@ $stmt2->close();
 
 $risk = null;
 $probability = null;
+$risk_tier = null;
 $explanation = [];
-if ($latest) {
+
+// Prefer averaged risk across full history; fall back to ML only when absent
+$risk_summary = get_patient_risk_summary($conn, $patient_id);
+
+if ($risk_summary) {
+    $risk_tier = $risk_summary['risk_tier'];
+    $probability = $risk_summary['probability'];
+    $risk = ($risk_tier === 'High' || $risk_tier === 'Critical') ? 1 : 0;
+} elseif ($latest) {
     // Map current data to train.csv features with defaults
     $payload = [
         "Age" => $patient_age,
@@ -77,6 +88,7 @@ if ($latest) {
         if ($py && isset($py['risk'])) {
             $risk = intval($py['risk']);
             $probability = isset($py['probability']) ? floatval($py['probability']) : null;
+            $risk_tier = get_risk_tier($probability ?? ($risk ? 0.75 : 0.25));
         } else {
             $explanation = ["error" => "Invalid response from ML service: " . ($response ?? 'null')];
         }

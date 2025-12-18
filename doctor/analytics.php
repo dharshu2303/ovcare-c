@@ -15,46 +15,17 @@ $doctor_name = $_SESSION['doctor_name'];
 $total_result = $conn->query("SELECT COUNT(*) as count FROM patients WHERE user_type = 'patient'");
 $total_patients = $total_result->fetch_assoc()['count'];
 
-// Get risk distribution - FIXED QUERY
-$risk_query = "
-    SELECT 
-        COALESCE(rh.risk_tier, 'Unknown') as risk_tier, 
-        COUNT(DISTINCT p.id) as count
-    FROM patients p
-    LEFT JOIN (
-        SELECT patient_id, risk_tier,
-            ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY calculated_at DESC) as rn
-        FROM risk_history
-    ) rh ON p.id = rh.patient_id AND rh.rn = 1
-    WHERE p.user_type = 'patient'
-    GROUP BY COALESCE(rh.risk_tier, 'Unknown')
-    ORDER BY 
-        CASE COALESCE(rh.risk_tier, 'Unknown')
-            WHEN 'Critical' THEN 1
-            WHEN 'High' THEN 2
-            WHEN 'Moderate' THEN 3
-            WHEN 'Low' THEN 4
-            ELSE 5
-        END
-";
+// Get risk distribution based on averaged probability across each patient's history
+$avg_probabilities = [];
+$avg_query = $conn->query("SELECT patient_id, AVG(probability) AS avg_probability FROM risk_history GROUP BY patient_id");
+if ($avg_query) {
+    while ($row = $avg_query->fetch_assoc()) {
+        if ($row['avg_probability'] !== null) {
+            $avg_probabilities[intval($row['patient_id'])] = floatval($row['avg_probability']);
+        }
+    }
+}
 
-// Alternative simpler query if your MySQL version doesn't support window functions:
-// $risk_query = "
-//     SELECT 
-//         COALESCE(rh.risk_tier, 'Unknown') as risk_tier, 
-//         COUNT(DISTINCT p.id) as count
-//     FROM patients p
-//     LEFT JOIN risk_history rh ON p.id = rh.patient_id
-//     WHERE p.user_type = 'patient'
-//     AND rh.calculated_at = (
-//         SELECT MAX(calculated_at) 
-//         FROM risk_history rh2 
-//         WHERE rh2.patient_id = p.id
-//     ) OR rh.calculated_at IS NULL
-//     GROUP BY COALESCE(rh.risk_tier, 'Unknown')
-// ";
-
-// Even simpler approach: Get all patients and their latest risk like in dashboard.php
 $patients_query = "SELECT id FROM patients WHERE user_type = 'patient'";
 $patients_result = $conn->query($patients_query);
 
@@ -67,68 +38,18 @@ $risk_distribution = [
 ];
 
 while ($patient_row = $patients_result->fetch_assoc()) {
-    $patient_id = $patient_row['id'];
+    $patient_id = intval($patient_row['id']);
     
-    // Get latest risk tier for this patient
-    $risk_stmt = $conn->prepare("
-        SELECT risk_tier 
-        FROM risk_history 
-        WHERE patient_id = ? 
-        ORDER BY calculated_at DESC 
-        LIMIT 1
-    ");
-    $risk_stmt->bind_param("i", $patient_id);
-    $risk_stmt->execute();
-    $risk_result = $risk_stmt->get_result();
-    $risk_data = $risk_result->fetch_assoc();
-    $risk_stmt->close();
-    
-    $risk_tier = $risk_data['risk_tier'] ?? 'Unknown';
-    
+    if (isset($avg_probabilities[$patient_id])) {
+        $risk_tier = get_risk_tier($avg_probabilities[$patient_id]);
+    } else {
+        $risk_tier = 'Unknown';
+    }
+
     if (isset($risk_distribution[$risk_tier])) {
         $risk_distribution[$risk_tier]++;
     } else {
         $risk_distribution[$risk_tier] = 1;
-    }
-}
-
-// Alternative: Use a single query with subquery
-$simple_risk_query = "
-    SELECT 
-        COALESCE((SELECT risk_tier 
-                  FROM risk_history 
-                  WHERE patient_id = p.id 
-                  ORDER BY calculated_at DESC 
-                  LIMIT 1), 'Unknown') as risk_tier,
-        COUNT(*) as count
-    FROM patients p
-    WHERE p.user_type = 'patient'
-    GROUP BY COALESCE((SELECT risk_tier 
-                      FROM risk_history 
-                      WHERE patient_id = p.id 
-                      ORDER BY calculated_at DESC 
-                      LIMIT 1), 'Unknown')
-";
-
-$simple_result = $conn->query($simple_risk_query);
-$risk_distribution = [
-    'Low' => 0,
-    'Moderate' => 0,
-    'High' => 0,
-    'Critical' => 0,
-    'Unknown' => 0
-];
-
-if ($simple_result) {
-    while ($row = $simple_result->fetch_assoc()) {
-        $risk_tier = $row['risk_tier'];
-        $count = $row['count'];
-        
-        if (isset($risk_distribution[$risk_tier])) {
-            $risk_distribution[$risk_tier] = $count;
-        } else {
-            $risk_distribution[$risk_tier] = $count;
-        }
     }
 }
 
@@ -159,6 +80,16 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
             padding: 30px 0;
             min-height: calc(100vh - 80px);
         }
+        /* Ensure readable white text on dark analytics page */
+        .glass-card,
+        .glass-card h1, .glass-card h2, .glass-card h3, .glass-card h4, .glass-card h5, .glass-card h6,
+        .glass-card p, .glass-card small, .glass-card .list-unstyled, .glass-card .list-unstyled li {
+            color: #ffffff !important;
+        }
+        .glass-card .text-muted, .text-muted {
+            color: rgba(255,255,255,0.75) !important;
+        }
+        .navbar .nav-link { color: #ffffff !important; }
     </style>
 </head>
 <body class="dark-theme">
@@ -221,28 +152,28 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
                     <div class="glass-card">
                         <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>Risk Statistics</h5>
                         <div class="mb-4">
-                            <div class="risk-stat" style="border-left: 4px solid #dc2626;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation-triangle text-danger me-2"></i>
                                     <strong>Critical Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['Critical'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #ef4444;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation-circle text-warning me-2"></i>
                                     <strong>High Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['High'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #f59e0b;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-exclamation text-warning me-2"></i>
                                     <strong>Moderate Risk</strong>
                                 </div>
                                 <div class="count"><?php echo $risk_distribution['Moderate'] ?? 0; ?></div>
                             </div>
-                            <div class="risk-stat" style="border-left: 4px solid #10b981;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-check-circle text-success me-2"></i>
                                     <strong>Low Risk</strong>
@@ -250,7 +181,7 @@ $avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatv
                                 <div class="count"><?php echo $risk_distribution['Low'] ?? 0; ?></div>
                             </div>
                             <?php if (($risk_distribution['Unknown'] ?? 0) > 0): ?>
-                            <div class="risk-stat" style="border-left: 4px solid #6b7280;">
+                            <div class="risk-stat">
                                 <div>
                                     <i class="fas fa-question-circle text-secondary me-2"></i>
                                     <strong>No Risk Data</strong>

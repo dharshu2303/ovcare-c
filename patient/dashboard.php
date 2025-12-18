@@ -42,16 +42,25 @@ $stmt2->close();
 
 $risk = null;
 $probability = null;
+$risk_tier = null;
 $explanation = [];
-if ($latest) {
-    // Map current data to train.csv features with defaults
+
+// Prefer averaged risk across full history to avoid single-record bias
+$risk_summary = get_patient_risk_summary($conn, $patient_id);
+
+if ($risk_summary) {
+  $risk_tier = $risk_summary['risk_tier'];
+  $probability = $risk_summary['probability'];
+  $risk = ($risk_tier === 'High' || $risk_tier === 'Critical') ? 1 : 0;
+} elseif ($latest) {
+    // Fallback: Call ML API if no risk_history exists
     $payload = [
         "Age" => $patient_age,
         "CA125_Level" => floatval($latest['CA125']),
         "HE4_Level" => floatval($latest['HE4']),
-        "LDH_Level" => 180.0,  // default values for missing features
+        "LDH_Level" => 180.0,
         "Hemoglobin" => 13.0,
-        "WBC" => floatval($latest['heart_rate']) * 100,  // rough approximation
+        "WBC" => floatval($latest['heart_rate']) * 100,
         "Platelets" => 250000.0,
         "Ovary_Size" => 3.5,
         "Fatigue_Level" => 5,
@@ -61,7 +70,7 @@ if ($latest) {
         "Menstrual_Irregularities" => 0,
         "Weight_Change" => 0.0
     ];
-    // Call Python Flask ML
+    
     $ch = curl_init(ML_API_URL . '/predict');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
@@ -71,6 +80,7 @@ if ($latest) {
     $response = curl_exec($ch);
     $err = curl_error($ch);
     curl_close($ch);
+    
     if ($err) {
         $risk = null;
         $explanation = ["error" => "ML service unreachable: $err. Please ensure Flask server is running on port 5000."];
@@ -79,14 +89,18 @@ if ($latest) {
         if ($py && isset($py['risk'])) {
             $risk = intval($py['risk']);
             $probability = isset($py['probability']) ? floatval($py['probability']) : null;
+            $risk_tier = get_risk_tier($probability ?? ($risk ? 0.75 : 0.25));
         } else {
             $explanation = ["error" => "Invalid response from ML service: " . ($response ?? 'null')];
         }
     }
-    // Basic SHAP-style explanation
+}
+
+// Build explanation based on latest biomarker data
+if ($latest) {
     $explanation = [
-        "CA125" => ($payload["CA125_Level"] >= 35) ? "High (≥35)" : "Normal (<35)",
-        "HE4" => ($payload["HE4_Level"] >= 140) ? "High (≥140)" : "Normal (<140)",
+        "CA125" => (floatval($latest['CA125']) >= 35) ? "High (≥35)" : "Normal (<35)",
+        "HE4" => (floatval($latest['HE4']) >= 140) ? "High (≥140)" : "Normal (<140)",
         "Age" => $patient_age . " years",
         "Symptoms" => !empty($latest['symptoms']) ? $latest['symptoms'] : 'None reported'
     ];
