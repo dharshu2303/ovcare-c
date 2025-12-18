@@ -15,21 +15,121 @@ $doctor_name = $_SESSION['doctor_name'];
 $total_result = $conn->query("SELECT COUNT(*) as count FROM patients WHERE user_type = 'patient'");
 $total_patients = $total_result->fetch_assoc()['count'];
 
-// Get risk distribution (latest risk per patient without window functions)
+// Get risk distribution - FIXED QUERY
 $risk_query = "
-    SELECT rh.risk_tier, COUNT(*) AS count
-    FROM risk_history rh
-    INNER JOIN (
-        SELECT patient_id, MAX(calculated_at) AS max_calculated_at
+    SELECT 
+        COALESCE(rh.risk_tier, 'Unknown') as risk_tier, 
+        COUNT(DISTINCT p.id) as count
+    FROM patients p
+    LEFT JOIN (
+        SELECT patient_id, risk_tier,
+            ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY calculated_at DESC) as rn
         FROM risk_history
-        GROUP BY patient_id
-    ) lr ON rh.patient_id = lr.patient_id AND rh.calculated_at = lr.max_calculated_at
-    GROUP BY rh.risk_tier
+    ) rh ON p.id = rh.patient_id AND rh.rn = 1
+    WHERE p.user_type = 'patient'
+    GROUP BY COALESCE(rh.risk_tier, 'Unknown')
+    ORDER BY 
+        CASE COALESCE(rh.risk_tier, 'Unknown')
+            WHEN 'Critical' THEN 1
+            WHEN 'High' THEN 2
+            WHEN 'Moderate' THEN 3
+            WHEN 'Low' THEN 4
+            ELSE 5
+        END
 ";
-$risk_result = $conn->query($risk_query);
-$risk_distribution = [];
-while ($row = $risk_result->fetch_assoc()) {
-    $risk_distribution[$row['risk_tier']] = $row['count'];
+
+// Alternative simpler query if your MySQL version doesn't support window functions:
+// $risk_query = "
+//     SELECT 
+//         COALESCE(rh.risk_tier, 'Unknown') as risk_tier, 
+//         COUNT(DISTINCT p.id) as count
+//     FROM patients p
+//     LEFT JOIN risk_history rh ON p.id = rh.patient_id
+//     WHERE p.user_type = 'patient'
+//     AND rh.calculated_at = (
+//         SELECT MAX(calculated_at) 
+//         FROM risk_history rh2 
+//         WHERE rh2.patient_id = p.id
+//     ) OR rh.calculated_at IS NULL
+//     GROUP BY COALESCE(rh.risk_tier, 'Unknown')
+// ";
+
+// Even simpler approach: Get all patients and their latest risk like in dashboard.php
+$patients_query = "SELECT id FROM patients WHERE user_type = 'patient'";
+$patients_result = $conn->query($patients_query);
+
+$risk_distribution = [
+    'Low' => 0,
+    'Moderate' => 0,
+    'High' => 0,
+    'Critical' => 0,
+    'Unknown' => 0
+];
+
+while ($patient_row = $patients_result->fetch_assoc()) {
+    $patient_id = $patient_row['id'];
+    
+    // Get latest risk tier for this patient
+    $risk_stmt = $conn->prepare("
+        SELECT risk_tier 
+        FROM risk_history 
+        WHERE patient_id = ? 
+        ORDER BY calculated_at DESC 
+        LIMIT 1
+    ");
+    $risk_stmt->bind_param("i", $patient_id);
+    $risk_stmt->execute();
+    $risk_result = $risk_stmt->get_result();
+    $risk_data = $risk_result->fetch_assoc();
+    $risk_stmt->close();
+    
+    $risk_tier = $risk_data['risk_tier'] ?? 'Unknown';
+    
+    if (isset($risk_distribution[$risk_tier])) {
+        $risk_distribution[$risk_tier]++;
+    } else {
+        $risk_distribution[$risk_tier] = 1;
+    }
+}
+
+// Alternative: Use a single query with subquery
+$simple_risk_query = "
+    SELECT 
+        COALESCE((SELECT risk_tier 
+                  FROM risk_history 
+                  WHERE patient_id = p.id 
+                  ORDER BY calculated_at DESC 
+                  LIMIT 1), 'Unknown') as risk_tier,
+        COUNT(*) as count
+    FROM patients p
+    WHERE p.user_type = 'patient'
+    GROUP BY COALESCE((SELECT risk_tier 
+                      FROM risk_history 
+                      WHERE patient_id = p.id 
+                      ORDER BY calculated_at DESC 
+                      LIMIT 1), 'Unknown')
+";
+
+$simple_result = $conn->query($simple_risk_query);
+$risk_distribution = [
+    'Low' => 0,
+    'Moderate' => 0,
+    'High' => 0,
+    'Critical' => 0,
+    'Unknown' => 0
+];
+
+if ($simple_result) {
+    while ($row = $simple_result->fetch_assoc()) {
+        $risk_tier = $row['risk_tier'];
+        $count = $row['count'];
+        
+        if (isset($risk_distribution[$risk_tier])) {
+            $risk_distribution[$risk_tier] = $count;
+        } else {
+            $risk_distribution[$risk_tier] = $count;
+        }
+    }
 }
 
 // Get average biomarker levels
@@ -55,6 +155,31 @@ $avg_data = $avg_result->fetch_assoc();
         .main-content {
             padding: 30px 0;
             min-height: calc(100vh - 80px);
+        }
+        .nav-item .nav-link {
+            color: white!important;
+        }
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+        }
+        .stat-card h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            margin: 10px 0;
+        }
+        .risk-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            margin: 5px 0;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .risk-stat .count {
+            font-size: 1.5rem;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -85,25 +210,32 @@ $avg_data = $avg_result->fetch_assoc();
             </div>
 
             <div class="row mb-4">
-                <div class="col-lg-4">
-                    <div class="glass-card text-center">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="glass-card stat-card">
                         <h6 class="text-muted">Total Patients</h6>
                         <h1 class="gradient-text"><?php echo $total_patients; ?></h1>
                     </div>
                 </div>
-                <div class="col-lg-4">
-                    <div class="glass-card text-center">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="glass-card stat-card glass-card-danger">
                         <h6 class="text-muted">Avg CA125</h6>
-                        <h1 class="text-primary"><?php echo number_format($avg_data['avg_ca125'], 2); ?></h1>
+                        <h1 class="text-primary"><?php echo number_format($avg_data['avg_ca125'] ?? 0, 2); ?></h1>
                     </div>
                 </div>
-                <div class="col-lg-4">
-                    <div class="glass-card text-center">
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="glass-card stat-card">
                         <h6 class="text-muted">Avg HE4</h6>
-                        <h1 class="text-secondary"><?php echo number_format($avg_data['avg_he4'], 2); ?></h1>
+                        <h1 class="text-secondary"><?php echo number_format($avg_data['avg_he4'] ?? 0, 2); ?></h1>
+                    </div>
+                </div>
+                <div class="col-lg-3 col-md-6 mb-3">
+                    <div class="glass-card stat-card glass-card-success">
+                        <h6 class="text-muted">Patients with Risk Data</h6>
+                        <h1><?php echo ($total_patients - ($risk_distribution['Unknown'] ?? 0)); ?>/<?php echo $total_patients; ?></h1>
                     </div>
                 </div>
             </div>
+
             <div class="row">
                 <div class="col-lg-6">
                     <div class="glass-card">
@@ -115,25 +247,64 @@ $avg_data = $avg_result->fetch_assoc();
                 </div>
                 <div class="col-lg-6">
                     <div class="glass-card">
-                        <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>System Summary</h5>
-                        <ul class="list-unstyled">
-                            <li class="mb-3">
-                                <i class="fas fa-users text-primary me-2"></i>
-                                <strong>Total Patients:</strong> <?php echo $total_patients; ?>
-                            </li>
-                            <li class="mb-3">
-                                <i class="fas fa-exclamation-triangle text-danger me-2"></i>
-                                <strong>Critical Risk:</strong> <?php echo $risk_distribution['Critical'] ?? 0; ?>
-                            </li>
-                            <li class="mb-3">
-                                <i class="fas fa-exclamation-circle text-warning me-2"></i>
-                                <strong>High Risk:</strong> <?php echo $risk_distribution['High'] ?? 0; ?>
-                            </li>
-                            <li class="mb-3">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                <strong>Low Risk:</strong> <?php echo $risk_distribution['Low'] ?? 0; ?>
-                            </li>
-                        </ul>
+                        <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>Risk Statistics</h5>
+                        <div class="mb-4">
+                            <div class="risk-stat" style="border-left: 4px solid #dc2626;">
+                                <div>
+                                    <i class="fas fa-exclamation-triangle text-danger me-2"></i>
+                                    <strong>Critical Risk</strong>
+                                </div>
+                                <div class="count"><?php echo $risk_distribution['Critical'] ?? 0; ?></div>
+                            </div>
+                            <div class="risk-stat" style="border-left: 4px solid #ef4444;">
+                                <div>
+                                    <i class="fas fa-exclamation-circle text-warning me-2"></i>
+                                    <strong>High Risk</strong>
+                                </div>
+                                <div class="count"><?php echo $risk_distribution['High'] ?? 0; ?></div>
+                            </div>
+                            <div class="risk-stat" style="border-left: 4px solid #f59e0b;">
+                                <div>
+                                    <i class="fas fa-exclamation text-warning me-2"></i>
+                                    <strong>Moderate Risk</strong>
+                                </div>
+                                <div class="count"><?php echo $risk_distribution['Moderate'] ?? 0; ?></div>
+                            </div>
+                            <div class="risk-stat" style="border-left: 4px solid #10b981;">
+                                <div>
+                                    <i class="fas fa-check-circle text-success me-2"></i>
+                                    <strong>Low Risk</strong>
+                                </div>
+                                <div class="count"><?php echo $risk_distribution['Low'] ?? 0; ?></div>
+                            </div>
+                            <?php if (($risk_distribution['Unknown'] ?? 0) > 0): ?>
+                            <div class="risk-stat" style="border-left: 4px solid #6b7280;">
+                                <div>
+                                    <i class="fas fa-question-circle text-secondary me-2"></i>
+                                    <strong>No Risk Data</strong>
+                                </div>
+                                <div class="count"><?php echo $risk_distribution['Unknown'] ?? 0; ?></div>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <h6>System Summary</h6>
+                            <ul class="list-unstyled">
+                                <li class="mb-2">
+                                    <i class="fas fa-users text-primary me-2"></i>
+                                    <strong>Total Patients:</strong> <?php echo $total_patients; ?>
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-chart-line text-info me-2"></i>
+                                    <strong>With Risk Assessment:</strong> <?php echo ($total_patients - ($risk_distribution['Unknown'] ?? 0)); ?>
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-thermometer-full text-danger me-2"></i>
+                                    <strong>Requiring Attention:</strong> <?php echo ($risk_distribution['Critical'] ?? 0) + ($risk_distribution['High'] ?? 0); ?>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -144,21 +315,52 @@ $avg_data = $avg_result->fetch_assoc();
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="../assets/js/charts.js"></script>
     <script>
-        const riskData = {
-            labels: ['Low', 'Moderate', 'High', 'Critical'],
+        // Prepare chart data excluding 'Unknown' if zero
+        const riskLabels = [];
+        const riskData = [];
+        const riskColors = [];
+        
+        <?php
+        // Create arrays for the chart
+        $chart_labels = [];
+        $chart_data = [];
+        $chart_colors = [];
+        
+        $chart_config = [
+            'Low' => ['color' => '#10b981'],
+            'Moderate' => ['color' => '#f59e0b'],
+            'High' => ['color' => '#ef4444'],
+            'Critical' => ['color' => '#dc2626']
+        ];
+        
+        foreach ($chart_config as $tier => $config) {
+            $count = $risk_distribution[$tier] ?? 0;
+            if ($count > 0) {
+                $chart_labels[] = $tier;
+                $chart_data[] = $count;
+                $chart_colors[] = $config['color'];
+            }
+        }
+        
+        // Add Unknown if it exists
+        if (($risk_distribution['Unknown'] ?? 0) > 0) {
+            $chart_labels[] = 'No Data';
+            $chart_data[] = $risk_distribution['Unknown'];
+            $chart_colors[] = '#6b7280';
+        }
+        ?>
+        
+        const riskChartData = {
+            labels: <?php echo json_encode($chart_labels); ?>,
             datasets: [{
-                data: [
-                    <?php echo $risk_distribution['Low'] ?? 0; ?>,
-                    <?php echo $risk_distribution['Moderate'] ?? 0; ?>,
-                    <?php echo $risk_distribution['High'] ?? 0; ?>,
-                    <?php echo $risk_distribution['Critical'] ?? 0; ?>
-                ],
-                backgroundColor: ['#10b981', '#f59e0b', '#ef4444', '#dc2626'],
-                borderColor: ['#10b981', '#f59e0b', '#ef4444', '#dc2626'],
+                data: <?php echo json_encode($chart_data); ?>,
+                backgroundColor: <?php echo json_encode($chart_colors); ?>,
+                borderColor: <?php echo json_encode($chart_colors); ?>,
                 borderWidth: 2
             }]
         };
-        createPieChart('riskChart', riskData);
+        
+        createPieChart('riskChart', riskChartData);
     </script>
 </body>
 </html>
