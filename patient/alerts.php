@@ -1,5 +1,5 @@
 <?php
-// alerts.php (simple information page)
+// alerts.php - Alerts and doctor notes for patients
 session_start();
 if (!isset($_SESSION['patient_id'])) {
     header('Location: login.php');
@@ -7,6 +7,34 @@ if (!isset($_SESSION['patient_id'])) {
 }
 require_once '../includes/config.php';
 require_once '../includes/functions.php';
+require_once '../db.php';
+
+$patient_id = intval($_SESSION['patient_id']);
+
+// Fetch doctor notes for this patient
+$notes_stmt = $conn->prepare("
+    SELECT dn.note_content, dn.created_at, d.name as doctor_name 
+    FROM doctor_notes dn 
+    LEFT JOIN doctors d ON dn.doctor_id = d.doctor_id 
+    WHERE dn.patient_id = ? 
+    ORDER BY dn.created_at DESC
+");
+$notes_stmt->bind_param("i", $patient_id);
+$notes_stmt->execute();
+$notes_result = $notes_stmt->get_result();
+$doctor_notes = [];
+while ($note = $notes_result->fetch_assoc()) {
+    $doctor_notes[] = $note;
+}
+$notes_stmt->close();
+
+// Fetch latest risk assessment
+$risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
+$risk_stmt->bind_param("i", $patient_id);
+$risk_stmt->execute();
+$risk_result = $risk_stmt->get_result();
+$latest_risk = $risk_result->fetch_assoc();
+$risk_stmt->close();
 ?>
 <!doctype html>
 <html lang="en">
@@ -119,7 +147,7 @@ require_once '../includes/functions.php';
 <body>
 <nav class="navbar navbar-expand-lg navbar-light sticky-top">
   <div class="container">
-    <a class="navbar-brand" href="index.php"><i class="fas fa-heartbeat me-2"></i>OvarianDigitalTwin</a>
+    <a class="navbar-brand" href="index.php"><i class="fas fa-heartbeat me-2"></i>OvCare</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
       <span class="navbar-toggler-icon"></span>
     </button>
@@ -141,11 +169,53 @@ require_once '../includes/functions.php';
   </div>
   
   <div class="alert-card">
-    <div class="info-box">
-      <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>About Alert System</h5>
-      <p class="mb-0">Our AI-powered alert system monitors your biomarker data in real-time. If elevated risk levels are detected, you will see immediate notifications on your dashboard. Always consult a qualified healthcare professional for medical advice and treatment decisions.</p>
+    <!-- Latest Risk Alert -->
+    <?php if ($latest_risk): ?>
+    <div class="info-box mb-4" style="background: linear-gradient(135deg, <?php 
+      echo $latest_risk['risk_tier'] === 'Critical' ? '#dc2626, #ef4444' : 
+           ($latest_risk['risk_tier'] === 'High' ? '#ef4444, #f59e0b' : 
+           ($latest_risk['risk_tier'] === 'Moderate' ? '#f59e0b, #fbbf24' : '#10b981, #22c55e')); 
+    ?>);">
+      <h5 class="mb-2">
+        <i class="fas fa-shield-alt me-2"></i>Current Risk Status: 
+        <strong><?php echo htmlspecialchars($latest_risk['risk_tier']); ?></strong>
+      </h5>
+      <p class="mb-1">
+        Probability: <strong><?php echo isset($latest_risk['probability']) ? round($latest_risk['probability'] * 100, 1) . '%' : 'N/A'; ?></strong>
+      </p>
+      <p class="mb-0" style="font-size: 0.9rem;">
+        <i class="fas fa-clock me-1"></i>Last assessed: <?php echo format_datetime($latest_risk['calculated_at']); ?>
+      </p>
     </div>
-    
+    <?php endif; ?>
+
+    <!-- Doctor Notes Section -->
+    <?php if (!empty($doctor_notes)): ?>
+    <div class="mb-4">
+      <h5 class="mb-3" style="font-weight: 700; color: #333;">
+        <i class="fas fa-user-md me-2" style="color: #667eea;"></i>Doctor's Notes & Recommendations
+      </h5>
+      <?php foreach ($doctor_notes as $note): ?>
+      <div class="feature-box mb-3" style="border-left: 4px solid #667eea;">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="mb-0" style="font-weight: 600; color: #333;">
+            <i class="fas fa-stethoscope me-2" style="color: #667eea;"></i>
+            <?php echo htmlspecialchars($note['doctor_name'] ?? 'Doctor'); ?>
+          </h6>
+          <small class="text-muted">
+            <i class="fas fa-calendar me-1"></i>
+            <?php echo format_datetime($note['created_at']); ?>
+          </small>
+        </div>
+        <p class="mb-0" style="color: #555; line-height: 1.6;">
+          <?php echo nl2br(htmlspecialchars($note['note_content'])); ?>
+        </p>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+   
     <h5 class="mb-4" style="font-weight: 700; color: #333;"><i class="fas fa-shield-alt me-2" style="color: #667eea;"></i>Alert Categories</h5>
     
     <div class="row">
