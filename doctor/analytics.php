@@ -15,11 +15,17 @@ $doctor_name = $_SESSION['doctor_name'];
 $total_result = $conn->query("SELECT COUNT(*) as count FROM patients WHERE user_type = 'patient'");
 $total_patients = $total_result->fetch_assoc()['count'];
 
-// Get risk distribution
-$risk_query = "SELECT risk_tier, COUNT(*) as count FROM (
-    SELECT patient_id, risk_tier, ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY calculated_at DESC) as rn
-    FROM risk_history
-) as latest WHERE rn = 1 GROUP BY risk_tier";
+// Get risk distribution (latest risk per patient without window functions)
+$risk_query = "
+    SELECT rh.risk_tier, COUNT(*) AS count
+    FROM risk_history rh
+    INNER JOIN (
+        SELECT patient_id, MAX(calculated_at) AS max_calculated_at
+        FROM risk_history
+        GROUP BY patient_id
+    ) lr ON rh.patient_id = lr.patient_id AND rh.calculated_at = lr.max_calculated_at
+    GROUP BY rh.risk_tier
+";
 $risk_result = $conn->query($risk_query);
 $risk_distribution = [];
 while ($row = $risk_result->fetch_assoc()) {

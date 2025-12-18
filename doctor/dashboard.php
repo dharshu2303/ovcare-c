@@ -42,6 +42,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['patient_id'])) {
         if ($insert_stmt->execute()) {
             $message = 'Biomarker data saved for patient.';
             $message_type = 'success';
+            
+            // Calculate risk automatically after saving biomarker data
+            // Fetch previous biomarker data to calculate velocity
+            $prev_stmt = $conn->prepare("SELECT CA125, HE4, recorded_at FROM biomarker_data WHERE patient_id = ? AND recorded_at < ? ORDER BY recorded_at DESC LIMIT 1");
+            $prev_stmt->bind_param("is", $patient_id, $recorded_at);
+            $prev_stmt->execute();
+            $prev_result = $prev_stmt->get_result();
+            $prev_data = $prev_result->fetch_assoc();
+            $prev_stmt->close();
+            
+            $ca125_velocity = 0;
+            $he4_velocity = 0;
+            
+            if ($prev_data) {
+                $time_diff = (strtotime($recorded_at) - strtotime($prev_data['recorded_at'])) / 86400; // days
+                if ($time_diff > 0) {
+                    $ca125_velocity = ($CA125 - $prev_data['CA125']) / $time_diff;
+                    $he4_velocity = ($HE4 - $prev_data['HE4']) / $time_diff;
+                }
+            }
+            
+            // Simple risk calculation (you can enhance this with ML API call)
+            $risk_score = 0;
+            if ($CA125 > 35) $risk_score += 0.3;
+            if ($HE4 > 140) $risk_score += 0.3;
+            if ($ca125_velocity > 5) $risk_score += 0.2;
+            if ($he4_velocity > 10) $risk_score += 0.2;
+            
+            $probability = min($risk_score, 1.0);
+            $risk_tier = get_risk_tier($probability);
+            
+            // Insert into risk_history
+            $risk_stmt = $conn->prepare("INSERT INTO risk_history (patient_id, risk_score, risk_tier, probability, ca125, he4, ca125_velocity, he4_velocity, calculated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $risk_stmt->bind_param("idssdddds", $patient_id, $risk_score, $risk_tier, $probability, $CA125, $HE4, $ca125_velocity, $he4_velocity, $recorded_at);
+            $risk_stmt->execute();
+            $risk_stmt->close();
         } else {
             $message = 'Failed to save biomarker data.';
             $message_type = 'danger';
@@ -51,30 +87,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['patient_id'])) {
 }
 
 // Fetch all patients with their latest risk assessment
-$query = "
-    SELECT p.id, p.name, p.email, p.age, 
-           rh.risk_tier, rh.probability, rh.calculated_at,
-           bd.CA125, bd.HE4, bd.recorded_at
-    FROM patients p
-    LEFT JOIN (
-        SELECT patient_id, risk_tier, probability, calculated_at,
-               ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY calculated_at DESC) as rn
-        FROM risk_history
-    ) rh ON p.id = rh.patient_id AND rh.rn = 1
-    LEFT JOIN (
-        SELECT patient_id, CA125, HE4, recorded_at,
-               ROW_NUMBER() OVER (PARTITION BY patient_id ORDER BY recorded_at DESC) as rn
-        FROM biomarker_data
-    ) bd ON p.id = bd.patient_id AND bd.rn = 1
-    WHERE p.user_type = 'patient'
-    ORDER BY rh.probability DESC, p.name ASC
-";
-
+$query = "SELECT id, name, email, age FROM patients WHERE user_type = 'patient' ORDER BY name ASC";
 $result = $conn->query($query);
 $patients = [];
 $risk_stats = ['Low' => 0, 'Moderate' => 0, 'High' => 0, 'Critical' => 0];
 
 while ($row = $result->fetch_assoc()) {
+    $patient_id = $row['id'];
+    
+    // Get latest biomarker data (include vitals and symptoms for ML payload)
+    $bio_stmt = $conn->prepare("SELECT CA125, HE4, heart_rate, temperature, sleep_hours, symptoms, recorded_at FROM biomarker_data WHERE patient_id = ? ORDER BY recorded_at DESC LIMIT 1");
+    $bio_stmt->bind_param("i", $patient_id);
+    $bio_stmt->execute();
+    $bio_result = $bio_stmt->get_result();
+    $bio_data = $bio_result->fetch_assoc();
+    $bio_stmt->close();
+    
+    $row['CA125'] = $bio_data['CA125'] ?? null;
+    $row['HE4'] = $bio_data['HE4'] ?? null;
+    $row['recorded_at'] = $bio_data['recorded_at'] ?? null;
+    
+    // Default values before prediction
+    $row['risk_tier'] = null;
+    $row['probability'] = null;
+    $row['calculated_at'] = null;
+
+    // Try ML prediction first (same logic as patient dashboard)
+    if ($bio_data) {
+        $patient_age = intval($row['age']);
+        $payload = [
+            "Age" => $patient_age,
+            "CA125_Level" => floatval($bio_data['CA125']),
+            "HE4_Level" => floatval($bio_data['HE4']),
+            "LDH_Level" => 180.0,
+            "Hemoglobin" => 13.0,
+            "WBC" => isset($bio_data['heart_rate']) ? floatval($bio_data['heart_rate']) * 100.0 : 7000.0,
+            "Platelets" => 250000.0,
+            "Ovary_Size" => 3.5,
+            "Fatigue_Level" => 5,
+            "Pelvic_Pain" => 0,
+            "Abdominal_Bloating" => 0,
+            "Early_Satiety" => 0,
+            "Menstrual_Irregularities" => 0,
+            "Weight_Change" => 0.0
+        ];
+
+        $ml_result = call_ml_api('/predict', $payload);
+        if (is_array($ml_result) && empty($ml_result['error'])) {
+            if (isset($ml_result['probability'])) {
+                $row['probability'] = floatval($ml_result['probability']);
+                $row['risk_tier'] = get_risk_tier($row['probability']);
+                $row['calculated_at'] = $row['recorded_at'];
+            } elseif (isset($ml_result['risk'])) {
+                $row['probability'] = null;
+                $row['risk_tier'] = $ml_result['risk'] ? 'High' : 'Low';
+                $row['calculated_at'] = $row['recorded_at'];
+            }
+        }
+    }
+
+    // Fallback to latest saved risk_history if ML not available or no data
+    if ($row['risk_tier'] === null && $row['probability'] === null) {
+        $risk_stmt = $conn->prepare("SELECT risk_tier, probability, calculated_at FROM risk_history WHERE patient_id = ? ORDER BY calculated_at DESC LIMIT 1");
+        $risk_stmt->bind_param("i", $patient_id);
+        $risk_stmt->execute();
+        $risk_result = $risk_stmt->get_result();
+        $risk_data = $risk_result->fetch_assoc();
+        $risk_stmt->close();
+
+        $row['risk_tier'] = $risk_data['risk_tier'] ?? null;
+        $row['probability'] = isset($risk_data['probability']) ? floatval($risk_data['probability']) : null;
+        $row['calculated_at'] = $risk_data['calculated_at'] ?? null;
+    }
+    
     $patients[] = $row;
     $tier = $row['risk_tier'] ?? 'Low';
     if (isset($risk_stats[$tier])) {
@@ -261,15 +346,15 @@ $total_patients = count($patients);
                 <div class="col-lg-8">
                     <div class="glass-card">
                         <h5 class="mb-3"><i class="fas fa-bell me-2"></i>Recent Alerts</h5>
-                        <div class="alert alert-danger glass-card-danger mb-2">
+                        <div class="alert alert-white glass-card-danger mb-2">
                             <i class="fas fa-exclamation-triangle me-2"></i>
                             <strong>Critical:</strong> 2 patients require immediate attention
                         </div>
-                        <div class="alert alert-warning glass-card-warning mb-2">
+                        <div class="alert alert-white glass-card-warning mb-2">
                             <i class="fas fa-exclamation-circle me-2"></i>
                             <strong>High Risk:</strong> 3 patients showing elevated biomarkers
                         </div>
-                        <div class="alert alert-info glass-card-primary mb-0">
+                        <div class="alert alert-white glass-card-primary mb-0">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>Update:</strong> 5 new data entries recorded today
                         </div>
@@ -317,7 +402,7 @@ $total_patients = count($patients);
                                         <td><?php echo $patient['HE4'] ? number_format($patient['HE4'], 2) : 'N/A'; ?></td>
                                         <td><?php echo $patient['recorded_at'] ? format_datetime($patient['recorded_at']) : 'N/A'; ?></td>
                                         <td>
-                                            <a href="patient_view.php?id=<?php echo $patient['id']; ?>" class="btn btn-sm glass-btn">
+                                            <a href="patient_view.php?id=<?php echo $patient['id']; ?>" class="btn btn-sm glass-btn-black">
                                                 <i class="fas fa-eye"></i>
                                             </a>
                                         </td>
