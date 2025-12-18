@@ -108,6 +108,18 @@ $latest_risk = $risk_history[0] ?? null;
         .main-content {
             padding: 30px 0;
         }
+        /* Ensure readable (white) text across the patient view */
+        .glass-card,
+        .glass-card h1, .glass-card h2, .glass-card h3, .glass-card h4, .glass-card h5, .glass-card h6,
+        .glass-card p, .glass-card small, .glass-card .list-group-item,
+        .glass-card .list-group-item p, .glass-card .list-group-item small {
+            color: #ffffff !important;
+        }
+        .glass-card .text-muted {
+            color: rgba(255,255,255,0.7) !important;
+        }
+        /* Navbar back link */
+        .navbar .nav-link { color: #ffffff !important; }
     </style>
 </head>
 <body class="dark-theme">

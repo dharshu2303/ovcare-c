@@ -35,6 +35,9 @@ while ($row = $risk_result->fetch_assoc()) {
 // Get average biomarker levels
 $avg_result = $conn->query("SELECT AVG(CA125) as avg_ca125, AVG(HE4) as avg_he4 FROM biomarker_data");
 $avg_data = $avg_result->fetch_assoc();
+// Ensure averages are numeric to avoid passing null to number_format()
+$avg_ca125 = isset($avg_data['avg_ca125']) && $avg_data['avg_ca125'] !== null ? floatval($avg_data['avg_ca125']) : 0.0;
+$avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatval($avg_data['avg_he4']) : 0.0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -55,6 +58,19 @@ $avg_data = $avg_result->fetch_assoc();
         .main-content {
             padding: 30px 0;
             min-height: calc(100vh - 80px);
+        }
+            /* Ensure readable white text on dark analytics page */
+            .glass-card,
+            .glass-card h1, .glass-card h2, .glass-card h3, .glass-card h4, .glass-card h5, .glass-card h6,
+            .glass-card p, .glass-card small, .glass-card .list-unstyled, .glass-card .list-unstyled li {
+                color: #ffffff !important;
+            }
+            .glass-card .text-muted, .text-muted {
+                color: rgba(255,255,255,0.75) !important;
+            }
+            .navbar .nav-link { color: #ffffff !important; }
+        .nav-item .nav-link {
+            color: white!important;
         }
     </style>
 </head>
@@ -94,13 +110,13 @@ $avg_data = $avg_result->fetch_assoc();
                 <div class="col-lg-4">
                     <div class="glass-card text-center">
                         <h6 class="text-muted">Avg CA125</h6>
-                        <h1 class="text-primary"><?php echo number_format($avg_data['avg_ca125'], 2); ?></h1>
+                        <h1 class="text-primary"><?php echo number_format($avg_ca125, 2); ?></h1>
                     </div>
                 </div>
                 <div class="col-lg-4">
                     <div class="glass-card text-center">
                         <h6 class="text-muted">Avg HE4</h6>
-                        <h1 class="text-secondary"><?php echo number_format($avg_data['avg_he4'], 2); ?></h1>
+                        <h1 class="text-secondary"><?php echo number_format($avg_he4, 2); ?></h1>
                     </div>
                 </div>
             </div>
