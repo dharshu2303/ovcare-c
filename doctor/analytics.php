@@ -135,6 +135,9 @@ if ($simple_result) {
 // Get average biomarker levels
 $avg_result = $conn->query("SELECT AVG(CA125) as avg_ca125, AVG(HE4) as avg_he4 FROM biomarker_data");
 $avg_data = $avg_result->fetch_assoc();
+// Ensure averages are numeric to avoid passing null to number_format()
+$avg_ca125 = isset($avg_data['avg_ca125']) && $avg_data['avg_ca125'] !== null ? floatval($avg_data['avg_ca125']) : 0.0;
+$avg_he4 = isset($avg_data['avg_he4']) && $avg_data['avg_he4'] !== null ? floatval($avg_data['avg_he4']) : 0.0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -155,31 +158,6 @@ $avg_data = $avg_result->fetch_assoc();
         .main-content {
             padding: 30px 0;
             min-height: calc(100vh - 80px);
-        }
-        .nav-item .nav-link {
-            color: white!important;
-        }
-        .stat-card {
-            text-align: center;
-            padding: 20px;
-        }
-        .stat-card h1 {
-            font-size: 3rem;
-            font-weight: 800;
-            margin: 10px 0;
-        }
-        .risk-stat {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 15px;
-            margin: 5px 0;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .risk-stat .count {
-            font-size: 1.5rem;
-            font-weight: bold;
         }
     </style>
 </head>
@@ -219,19 +197,13 @@ $avg_data = $avg_result->fetch_assoc();
                 <div class="col-lg-3 col-md-6 mb-3">
                     <div class="glass-card stat-card glass-card-danger">
                         <h6 class="text-muted">Avg CA125</h6>
-                        <h1 class="text-primary"><?php echo number_format($avg_data['avg_ca125'] ?? 0, 2); ?></h1>
+                        <h1 class="text-primary"><?php echo number_format($avg_data['avg_ca125'], 2); ?></h1>
                     </div>
                 </div>
                 <div class="col-lg-3 col-md-6 mb-3">
                     <div class="glass-card stat-card">
                         <h6 class="text-muted">Avg HE4</h6>
-                        <h1 class="text-secondary"><?php echo number_format($avg_data['avg_he4'] ?? 0, 2); ?></h1>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-md-6 mb-3">
-                    <div class="glass-card stat-card glass-card-success">
-                        <h6 class="text-muted">Patients with Risk Data</h6>
-                        <h1><?php echo ($total_patients - ($risk_distribution['Unknown'] ?? 0)); ?>/<?php echo $total_patients; ?></h1>
+                        <h1 class="text-secondary"><?php echo number_format($avg_data['avg_he4'], 2); ?></h1>
                     </div>
                 </div>
             </div>

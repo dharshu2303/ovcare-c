@@ -140,3 +140,19 @@ VALUES (
     'Oncology', 
     'LIC-2024-001'
 ) ON DUPLICATE KEY UPDATE name=name;
+
+-- Table to store uploaded scan/report files associated with patients
+CREATE TABLE IF NOT EXISTS scan_reports (
+    report_id INT PRIMARY KEY AUTO_INCREMENT,
+    patient_id INT NOT NULL,
+    file_path VARCHAR(512) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_type VARCHAR(100) DEFAULT NULL,
+    file_size BIGINT DEFAULT NULL,
+    uploaded_by INT DEFAULT NULL,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+    INDEX idx_patient_id (patient_id),
+    INDEX idx_uploaded_at (uploaded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

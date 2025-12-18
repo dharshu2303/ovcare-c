@@ -42,7 +42,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['patient_id'])) {
         if ($insert_stmt->execute()) {
             $message = 'Biomarker data saved for patient.';
             $message_type = 'success';
-            
+
+            // Handle optional scan/report upload
+            $scan_upload_path = null;
+            if (isset($_FILES['scan_report']) && isset($_FILES['scan_report']['error'])) {
+                if ($_FILES['scan_report']['error'] === UPLOAD_ERR_OK) {
+                    $tmp = $_FILES['scan_report']['tmp_name'];
+                    $orig = basename($_FILES['scan_report']['name']);
+                    $ext = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+                    $allowed = ['jpg','jpeg','png','gif','pdf'];
+                    if (in_array($ext, $allowed)) {
+                        $upload_dir = __DIR__ . '/../uploads/scans';
+                        if (!is_dir($upload_dir)) {
+                            mkdir($upload_dir, 0755, true);
+                        }
+                        $newname = uniqid('scan_') . '.' . $ext;
+                        $dest = $upload_dir . '/' . $newname;
+                        if (move_uploaded_file($tmp, $dest)) {
+                            $scan_upload_path = 'uploads/scans/' . $newname;
+                            // Attempt to record in scan_reports table if present
+                            $stmt = @$conn->prepare("INSERT INTO scan_reports (patient_id, file_path, uploaded_at) VALUES (?, ?, ?)");
+                            if ($stmt) {
+                                $uploaded_at = date('Y-m-d H:i:s');
+                                $stmt->bind_param("iss", $patient_id, $scan_upload_path, $uploaded_at);
+                                $stmt->execute();
+                                $stmt->close();
+                            }
+                        } else {
+                            $message = 'Biomarker saved but failed to move uploaded scan.';
+                            $message_type = 'warning';
+                        }
+                    } elseif ($_FILES['scan_report']['error'] !== UPLOAD_ERR_NO_FILE) {
+                        $message = 'Invalid scan file type. Allowed: jpg, jpeg, png, gif, pdf.';
+                        $message_type = 'danger';
+                    }
+                } elseif ($_FILES['scan_report']['error'] !== UPLOAD_ERR_NO_FILE) {
+                    $message = 'Error uploading scan file.';
+                    $message_type = 'danger';
+                }
+            }
+
             // Calculate risk automatically after saving biomarker data
             // Fetch previous biomarker data to calculate velocity
             $prev_stmt = $conn->prepare("SELECT CA125, HE4, recorded_at FROM biomarker_data WHERE patient_id = ? AND recorded_at < ? ORDER BY recorded_at DESC LIMIT 1");
@@ -297,7 +336,7 @@ $total_patients = count($patients);
                 <div class="col-12">
                     <div class="glass-card">
                         <h5 class="mb-3"><i class="fas fa-notes-medical me-2"></i>Add Biomarker Entry</h5>
-                        <form method="POST" class="row g-3">
+                        <form method="POST" class="row g-3" enctype="multipart/form-data">
                             <div class="col-md-4">
                                 <label class="form-label">Patient</label>
                                 <select name="patient_id" class="form-select" required>
@@ -330,6 +369,10 @@ $total_patients = count($patients);
                             <div class="col-12">
                                 <label class="form-label">Symptoms / Notes</label>
                                 <textarea name="symptoms" class="form-control" rows="2" placeholder="fatigue, abdominal pain"></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Upload Scan / Report (image or PDF)</label>
+                                <input type="file" name="scan_report" class="form-control" accept="image/*,application/pdf">
                             </div>
                             <div class="col-12 text-end">
                                 <button type="submit" class="btn glass-btn"><i class="fas fa-save me-2"></i>Save Entry</button>
